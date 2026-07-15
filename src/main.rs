@@ -30,7 +30,7 @@ impl Register {
     fn new(writer:writer::Writer) -> Self {
         Self {
             fdm:Vec::new(),
-            fds:vec![libc::pollfd { fd: -1, events: libc::POLLIN, revents: 0 }],//基础FD
+            fds:vec![libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 }],//基础FD
             monitors:Vec::new(),
             commander:commander::Commander::new(),
             writer,
@@ -101,7 +101,6 @@ fn load_config(out: &mut impl Write) -> Option<Register>{
     let p = match get_config_path() {
         Some(path) => path,
         None => {
-            println!("config is none");
             return None
         }
     };
@@ -112,12 +111,16 @@ fn load_config(out: &mut impl Write) -> Option<Register>{
 
     let text = match fs::read_to_string(p) {
         Ok(t) => t,
-        Err(_) => return None,
+        Err(_) => {
+            return None
+        }
     };
 
     let config: toml::Value = match toml::from_str(&text) {
         Ok(c) => c,
-        Err(_) => return None,
+        Err(_) => {
+            return None
+        }
     };
 
     let layout = config.get("layout").expect("缺少 [layout] 配置");
@@ -130,7 +133,8 @@ fn load_config(out: &mut impl Write) -> Option<Register>{
 
     let mut r = Register::new(w);
     for comp in comp_list {
-        let (monitor,fds):(Box<dyn Monitor>,Vec<libc::pollfd>)= match comp["type"].as_str() {
+        let (monitor,fds):(Box<dyn Monitor>,Vec<libc::pollfd>)
+        = match comp["type"].as_str() {
             Some(s) => {
                 match s {
                     "time" => {
@@ -213,21 +217,17 @@ fn create_default_config(path: &PathBuf) {
 }
 
 /*
-[
-layout
-]
+[layout]
 rows = 2
 
-[[
-components
-]]
+[[components]]
 type = "time" or "brightness" "alsa" "network" "bluetooth" "workspace"
 
 command = "sh command"
 
-x = a%b
-y = c%d
-longth = l
+x = "a%b"
+y = "c%d"
+longth = "l"
 #width = w
  */
 
@@ -243,7 +243,6 @@ fn mainloop() {
     let mut register = match load_config(&mut out) {
         Some(r ) => r,
         None => {
-            println!("register is none");
             panic!()
         }
     };
@@ -261,7 +260,7 @@ fn mainloop() {
             continue;
         }
 
-        // 按键退出
+        // 按键
         if register.fds[0].revents & libc::POLLIN != 0 {
             let mut buf = [0u8; 3];
             let n = unsafe { libc::read(register.fds[0].fd, buf.as_mut_ptr() as _, 3) };
