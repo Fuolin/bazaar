@@ -1,9 +1,12 @@
 use std::io::Write;
+use std::fs;
+use std::path::PathBuf;
 
-use crate::monitors::Monitor;
+use toml;
+
+use crate::{monitors::Monitor, writer::Block};
 mod monitors;
 
-mod init;
 mod writer;
 mod commander;
 //use rustbus
@@ -26,7 +29,7 @@ struct Register {
 impl Register {
     fn new(writer:writer::Writer) -> Self {
         Self {
-            fdm:vec![1u8],//基础FD
+            fdm:Vec::new(),
             fds:vec![libc::pollfd { fd: -1, events: libc::POLLIN, revents: 0 }],//基础FD
             monitors:Vec::new(),
             commander:commander::Commander::new(),
@@ -34,18 +37,19 @@ impl Register {
         }
     }
 
-    fn regist(&mut self,fds: Vec<libc::pollfd>,monitor:Box<dyn Monitor>,command:String){
+    fn regist(&mut self,fds: Vec<libc::pollfd>,monitor:Box<dyn Monitor>,block:Block,command:String){
         self.fdm.push(fds.len() as u8);
         self.fds.extend(fds);
         self.monitors.push(monitor);
+        self.writer.add_block(block);
         self.commander.add_command(command);
     }
 
     fn write_from_fd(&mut self,fd:libc::pollfd, out: &mut impl Write){
-        for (i, m) in self.fdm.iter().enumerate().skip(1) {
+        for (i, m) in self.fdm.iter().enumerate() {
             for j in 0..*m {
-                if self.fds[i + j as usize].fd == fd.fd {
-                    self.writer.update_block(out,i - 1,self.monitors[i-1].get_data());
+                if self.fds[1 + i + j as usize].fd == fd.fd {
+                    self.writer.update_block(out,i,self.monitors[i].get_data());
                     return;
                 }
             }
@@ -61,6 +65,172 @@ impl Register {
         self.writer.set_selector(out,selector);
     }
 }
+
+unsafe extern "C" {
+    fn getpwuid(uid: u32) -> *mut libc::passwd;
+    fn getuid() -> u32;
+}
+fn get_config_path() -> Option<PathBuf> {
+    let mut home: PathBuf = unsafe {
+
+        let uid = getuid();
+
+        let pwd = getpwuid(uid);
+        if pwd.is_null() {
+            return None;
+        }
+        let home_cstr = (*pwd).pw_dir;
+        if home_cstr.is_null() {
+            return None;
+        }
+
+        let home = match std::ffi::CStr::from_ptr(home_cstr).to_str() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        PathBuf::from(home)
+    };
+    home.push(".config");
+    home.push("bazaar");
+    home.push("config.toml");
+    
+    Some(home)
+}
+
+fn load_config(out: &mut impl Write) -> Option<Register>{
+    let p = match get_config_path() {
+        Some(path) => path,
+        None => {
+            println!("config is none");
+            return None
+        }
+    };
+
+    if !p.is_file() {
+        create_default_config(&p);
+    }
+
+    let text = match fs::read_to_string(p) {
+        Ok(t) => t,
+        Err(_) => return None,
+    };
+
+    let config: toml::Value = match toml::from_str(&text) {
+        Ok(c) => c,
+        Err(_) => return None,
+    };
+
+    let layout = config.get("layout").expect("缺少 [layout] 配置");
+
+    let comp_list = config.get("components")
+    .and_then(|v| v.as_array())
+    .expect("[[components]] 配置错误");
+
+    let w = writer::Writer::start(out, layout.to_string());
+
+    let mut r = Register::new(w);
+    for comp in comp_list {
+        let (monitor,fds):(Box<dyn Monitor>,Vec<libc::pollfd>)= match comp["type"].as_str() {
+            Some(s) => {
+                match s {
+                    "time" => {
+                        let (t, fds) = monitors::Timer::new();
+                        (Box::new(t),fds)
+                    }
+                    "brightness" => {
+                        let (t, fds) = monitors::BrightnessMonitor::new();
+                        (Box::new(t),fds)
+                    }
+                    "alsa" => {
+                        let (t, fds) = monitors::ALSAMonitor::new();
+                        (Box::new(t),fds)
+                    }
+                    "network" => {
+                        let (t, fds) = monitors::NmMonitor::new();
+                        (Box::new(t),fds)
+                    }
+                    "bluetooth" => {
+                        let (t, fds) = monitors::BtMonitor::new();
+                        (Box::new(t),fds)
+                    }
+                    "workspace" => {
+                        let (t, fds) = monitors::WSMonitor::new();
+                        (Box::new(t),fds)
+                    }
+                    _ => continue,
+                }
+            }
+            None => {
+                continue;
+            }
+        };
+
+        let command = match comp["command"].as_str() {
+            Some(c) => c.to_string(),
+            None => continue
+        };
+
+        let (x,dx) = match comp["x"].as_str() {
+            Some(x_dx) => {
+                (0,0)
+            }
+            None => {
+                (0,0)
+            }
+        };
+
+        let (y,dy) = match comp["y"].as_str() {
+            Some(y_dy) => {
+                (0,0)
+            }
+            None => {
+                (0,0)
+            }
+        };
+
+        let l = match comp["longth"].as_integer() {
+            Some(l) => {
+                40
+            }
+            None => {
+                40
+            }
+        };
+
+        let block = Block::new(x, dx, y, dy, l);
+
+        r.regist(fds, monitor, block, command);
+
+        //let w = match
+    }
+    
+
+    Some(r)
+}
+
+fn create_default_config(path: &PathBuf) {
+
+}
+
+/*
+[
+layout
+]
+rows = 2
+
+[[
+components
+]]
+type = "time" or "brightness" "alsa" "network" "bluetooth" "workspace"
+
+command = "sh command"
+
+x = a%b
+y = c%d
+longth = l
+#width = w
+ */
+
 fn main() {
     let _terminal_guard = writer::TerminalGuard::new().expect("终端初始化失败");
     mainloop();
@@ -69,24 +239,14 @@ fn main() {
 fn mainloop() {
     let mut out = std::io::stdout().lock();
 
-    let (timer,timer_fd) = monitors::Timer::new();
-    let (bright,bright_fd) = monitors::BrightnessMonitor::new();
-    let (alsa,alsa_fd) = monitors::ALSAMonitor::new();
-    let (nm,nm_fd) = monitors::NmMonitor::new();
-    let (bt,bt_fd) = monitors::BtMonitor::new();
-    let (ws,ws_fd) = monitors::WSMonitor::new();
-
-    // 初始化writer
-    let writer = writer::Writer::start(&mut out,"layout".to_string());
-    // 注册
-    let mut register = Register::new(writer);
-
-    register.regist(timer_fd, Box::new(timer), "timer".to_string());
-    register.regist(bright_fd, Box::new(bright), "brightness".to_string());
-    register.regist(alsa_fd, Box::new(alsa), "alsa".to_string());
-    register.regist(nm_fd, Box::new(nm), "nm".to_string());
-    register.regist(bt_fd, Box::new(bt), "bt".to_string());
-    register.regist(ws_fd, Box::new(ws), "ws".to_string());
+    // 从配置文件创建注册表
+    let mut register = match load_config(&mut out) {
+        Some(r ) => r,
+        None => {
+            println!("register is none");
+            panic!()
+        }
+    };
 
     // 主循环
     loop {

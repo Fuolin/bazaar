@@ -21,30 +21,31 @@ impl Drop for TerminalGuard {
         let _ = disable_raw_mode();
     }
 }
-#[derive(Clone)]
-struct Block {
-    x:u16,
-    y:u16,
+pub struct Block {
+    x:u8,
+    dx:i16,
+    y:u8,
+    dy:i16,
+
     l:u16,
+    //w:u16,
+
     latest: [u8; 32],
     str_len: usize,
 }
 
 impl Block {
-    fn new() -> Self{
+    pub fn new(x:u8, dx:i16, y:u8, dy:i16, l:u16) -> Self{
         Self{
-            x:0,
-            y:0,
-            l:0,
+            x:x,
+            dx:dx,
+            y:y,
+            dy:dy,
+            l:l,
+            //w:w,
             latest:[0; 32],
             str_len:0,
         }
-    }
-
-    fn update_location(&mut self,x:u16,y:u16,l:u16){
-        self.x = x;
-        self.y = y;
-        self.l = l;
     }
 
     fn update(&mut self,text:String){
@@ -58,8 +59,8 @@ impl Block {
 }
 
 pub struct Writer {
-    rows:u16,
     cols:u16,
+    rows:u16,
     blocks:Vec<Block>,
     selector:u16,
     layout:String,
@@ -70,9 +71,9 @@ impl Writer {
         let (cols,rows) = size().unwrap_or((80,24));
         //从layout获取block的数量
         let mut writer = Self {
-            rows:rows,
             cols:cols,
-            blocks:vec![Block::new();10],
+            rows:rows,
+            blocks:Vec::new(),
             selector:0,
             layout:layout,
         };
@@ -81,11 +82,16 @@ impl Writer {
         writer
     }
 
+    pub fn add_block(&mut self,b:Block){
+        self.blocks.push(b);
+    }
+
     fn update_all(&mut self,out: &mut impl Write){
-        //重新计算blocks的位置和长度
         //全量绘制
         self.print_background(out);
-        //从layout获取block的位置
+        for i in 0..self.blocks.len(){
+            print_block(out,self.cols,self.rows,&self.blocks[i],i == self.selector as usize);
+        }
     }
 
     fn print_background(&mut self,out: &mut impl Write) {
@@ -97,7 +103,7 @@ impl Writer {
             return;
         }
         self.blocks[i].update(latest);
-        print_block(out,&self.blocks[i],i == self.selector as usize);
+        print_block(out,self.cols,self.rows,&self.blocks[i],i == self.selector as usize);
     }
 
     pub fn check_size(&mut self,out: &mut impl Write){
@@ -120,8 +126,15 @@ impl Writer {
 }
 
 // 局部打印（安全UTF-8截断，零堆分配）
-fn print_block(out: &mut impl Write, block: &Block, is_selected: bool) {
-    let _ = queue!(out, MoveTo(block.x, block.y));
+fn print_block(out: &mut impl Write, cols:u16, rows:u16, block: &Block, is_selected: bool) {
+    // x 坐标
+    let base_x = block.x as i32 * cols as i32;
+    let final_x = (base_x + block.dx as i32).max(0) as u16;
+
+    // y 坐标
+    let base_y = block.y as i32 * rows as i32;
+    let final_y = (base_y + block.dy as i32).max(0) as u16;
+    let _ = queue!(out, MoveTo(final_x,final_y));
     let l = block.l as usize;
 
     if l == 0 {
