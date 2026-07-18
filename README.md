@@ -1,12 +1,15 @@
 # Bazaar
-基于 Rust 开发的项目
+基于 Rust 开发的状态栏(bar)项目
+![大巴扎bazaar](bazaar.jpg)
 
 ## 项目介绍
+- 一个在终端内显示的状态栏，集成显示/更改时间，网络，音量等
+## 使用环境依赖
+- linux
+- ASLA
+- networkmanager
+- bluebluetooth
 
-## 环境依赖
-- Rust 工具链 1.70+
+## 构建依赖
 - Cargo
-
-## 快速构建
-### 1. 拉取代码
-```bash
+- cargo.toml中的依赖
