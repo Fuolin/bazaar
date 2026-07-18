@@ -63,7 +63,7 @@ pub struct Writer {
     rows:u16,
     blocks:Vec<Block>,
     selector:u16,
-    layout:String,
+    _layout:String,
 
 }
 impl Writer {
@@ -75,9 +75,9 @@ impl Writer {
             rows:rows,
             blocks:Vec::new(),
             selector:0,
-            layout:layout,
+            _layout:layout,
         };
-        writer.update_all(out);
+        writer.print_background(out);
 
         writer
     }
@@ -86,7 +86,7 @@ impl Writer {
         self.blocks.push(b);
     }
 
-    fn update_all(&mut self,out: &mut impl Write){
+    pub fn update_all(&mut self,out: &mut impl Write){
         //全量绘制
         self.print_background(out);
         for i in 0..self.blocks.len(){
@@ -96,6 +96,16 @@ impl Writer {
 
     fn print_background(&mut self,out: &mut impl Write) {
         //从layout获取background的内容
+
+        let content_width = self.cols.saturating_sub(2) as usize;
+        let border = "─".repeat(content_width);
+        let context = " ".repeat(content_width);
+
+        let _ = queue!(out, MoveTo(0, 0));
+        let _ = writeln!(out, "╭{border}╮\r");
+        let _ = writeln!(out, "│{context}│\r");
+        let _ = writeln!(out, "│{context}│\r");
+        let _ = writeln!(out, "╰{border}╯\r");
     }
 
     pub fn update_block(&mut self,out: &mut impl Write, i:usize, latest:String){
@@ -117,7 +127,9 @@ impl Writer {
     }
 
     pub fn set_selector(&mut self,out: &mut impl Write,selector:u16){
+        print_block(out,self.cols,self.rows,&self.blocks[self.selector as usize],false);
         self.selector = selector;
+        print_block(out,self.cols,self.rows,&self.blocks[self.selector as usize],true);
     }
 
     pub fn get_selector(&self) -> u16{
@@ -128,11 +140,11 @@ impl Writer {
 // 局部打印（安全UTF-8截断，零堆分配）
 fn print_block(out: &mut impl Write, cols:u16, rows:u16, block: &Block, is_selected: bool) {
     // x 坐标
-    let base_x = block.x as i32 * cols as i32;
+    let base_x = block.x as i32 * cols as i32 / 100;
     let final_x = (base_x + block.dx as i32).max(0) as u16;
 
     // y 坐标
-    let base_y = block.y as i32 * rows as i32;
+    let base_y = block.y as i32 * rows as i32 / 100;
     let final_y = (base_y + block.dy as i32).max(0) as u16;
     let _ = queue!(out, MoveTo(final_x,final_y));
     let l = block.l as usize;

@@ -64,6 +64,14 @@ impl Register {
     fn set_selector(&mut self,out: &mut impl Write,selector:u16){
         self.writer.set_selector(out,selector);
     }
+
+    fn init(&mut self,out: &mut impl Write){
+        let mut i = 0;
+        for m in self.monitors.iter_mut() {
+            self.writer.update_block(out,i,m.get_data());
+            i = i+1;
+        }
+    }
 }
 
 unsafe extern "C" {
@@ -137,6 +145,10 @@ fn load_config(out: &mut impl Write) -> Option<Register>{
         = match comp["type"].as_str() {
             Some(s) => {
                 match s {
+                    "bazaar" => {
+                        let (t,fds) = monitors::Bazaar::new();
+                        (Box::new(t),fds)
+                    }
                     "time" => {
                         let (t, fds) = monitors::Timer::new();
                         (Box::new(t),fds)
@@ -176,7 +188,12 @@ fn load_config(out: &mut impl Write) -> Option<Register>{
 
         let (x,dx) = match comp["x"].as_str() {
             Some(x_dx) => {
-                (0,0)
+                match x_dx.split_once("%") {
+                    Some((x,dx)) => {
+                        (x.trim().parse().unwrap_or(0),dx.trim().parse::<i16>().unwrap_or(0))
+                    }
+                    None => (0,0)
+                }
             }
             None => {
                 (0,0)
@@ -185,7 +202,12 @@ fn load_config(out: &mut impl Write) -> Option<Register>{
 
         let (y,dy) = match comp["y"].as_str() {
             Some(y_dy) => {
-                (0,0)
+                match y_dy.split_once("%") {
+                    Some((y,dy)) => {
+                        (y.trim().parse().unwrap_or(0),dy.trim().parse::<i16>().unwrap_or(0))
+                    }
+                    None => (0,0)
+                }
             }
             None => {
                 (0,0)
@@ -194,7 +216,7 @@ fn load_config(out: &mut impl Write) -> Option<Register>{
 
         let l = match comp["longth"].as_integer() {
             Some(l) => {
-                40
+                l.try_into().unwrap_or(40)
             }
             None => {
                 40
@@ -213,7 +235,7 @@ fn load_config(out: &mut impl Write) -> Option<Register>{
 }
 
 fn create_default_config(path: &PathBuf) {
-
+    
 }
 
 /*
@@ -229,7 +251,7 @@ x = "a%b"
 y = "c%d"
 longth = "l"
 #width = w
- */
+*/
 
 fn main() {
     let _terminal_guard = writer::TerminalGuard::new().expect("终端初始化失败");
@@ -246,6 +268,8 @@ fn mainloop() {
             panic!()
         }
     };
+
+    register.init(&mut out);
 
     // 主循环
     loop {

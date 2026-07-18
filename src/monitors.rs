@@ -38,6 +38,17 @@ pub trait Monitor:{
     }
 }
 
+pub struct Bazaar;
+impl Monitor for Bazaar {
+    fn new() -> (Self,Vec<pollfd>){
+        (Self,vec![pollfd { fd: -1, events: 0, revents: 0 }])
+    }
+
+    fn get_data(&mut self) -> String {
+        "bazaar".to_string()
+    }
+}
+
 pub struct Timer{
     fd:i32,
 }
@@ -118,7 +129,7 @@ impl Monitor for BrightnessMonitor {
 
     fn get_data(&mut self) -> String{
         let b = get_brightness(&self.path);
-        format!("{} {}%", Icons::BRIGHT, b/self.max*100)
+        format!("{} {}%", Icons::BRIGHT, b / self.max * 100)
     }
 }
 
@@ -137,11 +148,11 @@ fn find_brightness_path() -> Option<String> {
 fn get_max_brightness(p:&Option<String>) -> u8 {
     let path = match p {
         Some(p) => p.replace("brightness", "max_brightness"),
-        None => return 0,
+        None => return 100,
     };
     std::fs::read_to_string(path).ok()
         .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(0)
+        .unwrap_or(100)
 }
 
 fn get_brightness(p:&Option<String>) -> u8 {
@@ -225,9 +236,11 @@ impl Monitor for NmMonitor {
 
     fn get_data(&mut self) -> String {
         let mut line = String::new();
-        match self.reader.read_line(&mut line) {
-            Err(_) => {}
-            Ok(_) =>{}
+        if !self.reader.buffer().is_empty(){
+            match self.reader.read_line(&mut line) {
+                Err(_) => {}
+                Ok(_) =>{}
+            }
         }
         format!("{} {}", Icons::WIFI,get_current_wifi())
     }
@@ -267,9 +280,11 @@ impl Monitor for BtMonitor {
     }
     fn get_data(&mut self) -> String {
         let mut line = String::new();
-        match self.reader.read_line(&mut line) {
-            Err(_) => {}
-            Ok(_) =>{}
+        if !self.reader.buffer().is_empty(){
+            match self.reader.read_line(&mut line) {
+                Err(_) => {}
+                Ok(_) =>{}
+            }
         }
         format!("{} {}", Icons::BT,get_current_bt())
     }
