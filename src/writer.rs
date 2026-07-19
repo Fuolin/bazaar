@@ -1,4 +1,5 @@
 use std::io::{Write, stdout,Result};
+use std::collections::BTreeMap;
 
 use crossterm::{queue, execute};
 use crossterm::terminal::{size, Clear, ClearType, disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
@@ -64,7 +65,6 @@ pub struct Writer {
     blocks:Vec<Block>,
     selector:u16,
     _layout:String,
-
 }
 impl Writer {
     pub fn start(out: &mut impl Write,layout:String) -> Self {
@@ -82,8 +82,24 @@ impl Writer {
         writer
     }
 
-    pub fn add_block(&mut self,b:Block){
-        self.blocks.push(b);
+    pub fn add_block(&mut self,block: Block){
+        self.blocks.push(block);
+    }
+
+    pub fn get_sort(&mut self) -> Vec<Vec<usize>>{
+        let mut groups: BTreeMap<(u8, i16), Vec<usize>> = BTreeMap::new();
+
+        for (idx, block) in self.blocks.iter().enumerate() {
+            groups.entry((block.y, block.dy)).or_default().push(idx);
+        }
+
+        let mut result = Vec::with_capacity(groups.len());
+        for (_, mut indices) in groups {
+            indices.sort_by_key(|&i| self.blocks[i].x);
+            result.push(indices);
+        }
+        self.selector = result[0][0] as u16;
+        result
     }
 
     pub fn update_all(&mut self,out: &mut impl Write){
@@ -147,7 +163,9 @@ fn print_block(out: &mut impl Write, cols:u16, rows:u16, block: &Block, is_selec
     let base_y = block.y as i32 * rows as i32 / 100;
     let final_y = (base_y + block.dy as i32).max(0) as u16;
     let _ = queue!(out, MoveTo(final_x,final_y));
-    let l = block.l as usize;
+
+    let l_max = (cols - final_x) as usize;
+    let l = (block.l as usize).min(l_max);
 
     if l == 0 {
         return;

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use toml;
 
+
 use crate::{monitors::Monitor, writer::Block};
 mod monitors;
 
@@ -25,6 +26,8 @@ struct Register {
     monitors:Vec<Box<dyn Monitor>>,
     commander:commander::Commander,
     writer:writer::Writer,
+    sort:Vec<Vec<usize>>,
+    selector:u16,
 }
 impl Register {
     fn new(writer:writer::Writer) -> Self {
@@ -34,6 +37,18 @@ impl Register {
             monitors:Vec::new(),
             commander:commander::Commander::new(),
             writer,
+            sort:Vec::new(),
+            selector:0,
+        }
+    }
+
+    fn init(&mut self,out: &mut impl Write){
+        self.sort = self.writer.get_sort();
+
+        let mut i = 0;
+        for m in self.monitors.iter_mut() {
+            self.writer.update_block(out,i,m.get_data());
+            i = i+1;
         }
     }
 
@@ -56,29 +71,31 @@ impl Register {
         }
     }
 
-    fn command_from_selctor(&mut self){
+    fn run_command(&mut self){
         let selector = self.writer.get_selector() as usize;
         self.commander.command(selector);
     }
 
-    fn set_selector(&mut self,out: &mut impl Write,selector:u16){
-        self.writer.set_selector(out,selector);
+    fn set_selector(&mut self,out: &mut impl Write,mut selector:u16){
+        self.selector = selector;
+        for group in self.sort.iter() {
+            let len = group.len() as u16;
+            if selector < len {
+                self.writer.set_selector(out,group[selector as usize] as u16);
+                return;
+            }
+            selector -= len;
+        };
     }
-
-    fn init(&mut self,out: &mut impl Write){
-        let mut i = 0;
-        for m in self.monitors.iter_mut() {
-            self.writer.update_block(out,i,m.get_data());
-            i = i+1;
-        }
-    }
+    
 }
 
-unsafe extern "C" {
-    fn getpwuid(uid: u32) -> *mut libc::passwd;
-    fn getuid() -> u32;
-}
 fn get_config_path() -> Option<PathBuf> {
+    unsafe extern "C" {
+        fn getpwuid(uid: u32) -> *mut libc::passwd;
+        fn getuid() -> u32;
+    }
+
     let mut home: PathBuf = unsafe {
 
         let uid = getuid();
@@ -114,7 +131,10 @@ fn load_config(out: &mut impl Write) -> Option<Register>{
     };
 
     if !p.is_file() {
-        create_default_config(&p);
+        match create_default_config(&p) {
+            Err(_) => return None,
+            Ok(_) => {}
+        }
     }
 
     let text = match fs::read_to_string(p) {
@@ -214,12 +234,12 @@ fn load_config(out: &mut impl Write) -> Option<Register>{
             }
         };
 
-        let l = match comp["longth"].as_integer() {
+        let l = match comp["longth"].as_str() {
             Some(l) => {
-                l.try_into().unwrap_or(40)
+                l.trim().parse().unwrap_or(0)
             }
             None => {
-                40
+                0
             }
         };
 
@@ -234,24 +254,93 @@ fn load_config(out: &mut impl Write) -> Option<Register>{
     Some(r)
 }
 
-fn create_default_config(path: &PathBuf) {
-    
-}
+fn create_default_config(path: &PathBuf) -> std::io::Result<()>  {
+    if path.exists() {
+        if path.is_dir() {
+            fs::remove_dir_all(path)?;   // 删除整个目录树
+        } else {
+            fs::remove_file(path)?;      // 删除文件
+        }
+    }
 
-/*
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let default_content = 
+r#"
 [layout]
 rows = 2
 
 [[components]]
-type = "time" or "brightness" "alsa" "network" "bluetooth" "workspace"
+type = "time"
 
 command = "sh command"
 
-x = "a%b"
-y = "c%d"
-longth = "l"
-#width = w
-*/
+x = "100%-23"
+y = "0%2"
+longth = "21"
+
+[[components]]
+type = "brightness"
+
+command = "sh command"
+
+x = "0%2"
+y = "0%1"
+longth = "5"
+
+[[components]]
+type = "alsa"
+
+command = "sh command"
+
+x = "0%8"
+y = "0%1"
+longth = "11"
+
+[[components]]
+type = "bluetooth"
+
+command = "sh command"
+
+x = "0%20"
+y = "0%1"
+longth = "30"
+
+[[components]]
+type = "network"
+
+command = "sh command"
+
+x = "50%10"
+y = "0%1"
+longth = "30"
+
+[[components]]
+type = "workspace"
+
+command = "sh command"
+
+x = "0%2"
+y = "0%2"
+longth = "14"
+
+[[components]]
+type = "bazaar"
+
+command = "sh command"
+
+x = "50%-3"
+y = "0%2"
+longth = "6"
+"#;
+    let mut file = std::fs::File::create(path)?;
+    file.write_all(default_content.as_bytes())?;
+
+    Ok(())
+}
+
 
 fn main() {
     let _terminal_guard = writer::TerminalGuard::new().expect("终端初始化失败");
@@ -292,7 +381,7 @@ fn mainloop() {
                 if buf[0] == b'q' { break; }
                 if buf[0] == b'n' { notepad(); }
                 if buf[0] == b'j' { register.set_selector(&mut out,1); }
-                if buf[0] == b'e' { register.command_from_selctor(); }
+                if buf[0] == b'e' { register.run_command(); }
             }
             register.fds[0].revents = 0;
         }

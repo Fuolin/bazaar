@@ -129,7 +129,7 @@ impl Monitor for BrightnessMonitor {
 
     fn get_data(&mut self) -> String{
         let b = get_brightness(&self.path);
-        format!("{} {}%", Icons::BRIGHT, b / self.max * 100)
+        format!("{} {}%", Icons::BRIGHT, b as u16 * 100 / self.max as u16)
     }
 }
 

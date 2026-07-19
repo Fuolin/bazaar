@@ -1,5 +1,5 @@
 pub struct Commander {
-    commands: Vec<String>,
+    pub commands: Vec<String>,
 }
 
 impl Commander {
