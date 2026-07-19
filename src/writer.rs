@@ -14,6 +14,14 @@ impl TerminalGuard {
         execute!(stdout(), Hide)?;
         Ok(Self)
     }
+
+    pub fn yield_terminal<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let result = f();
+        result
+    }
 }
 
 impl Drop for TerminalGuard {
