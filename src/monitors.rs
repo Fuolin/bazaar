@@ -1,7 +1,7 @@
 use libc::{pollfd, inotify_init1, inotify_add_watch, timerfd_create, timerfd_settime, read};
 use libc::{IN_MODIFY, IN_NONBLOCK, CLOCK_MONOTONIC, TFD_NONBLOCK, itimerspec};
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader,Read};
 use std::os::fd::AsRawFd;
 use std::process::{ChildStdout, Command, Stdio};
 
@@ -292,7 +292,7 @@ impl Monitor for BtMonitor {
 
 // 获取蓝牙设备
 fn get_current_bt() -> String {
-    let output = run_cmd("bluetoothctl", &["devices", "Connected"], 100);
+    let output = Some("none");//run_cmd("bluetoothctl", &["devices", "Connected"], 100);
     let lines = output.as_ref().map(|s| s.lines().collect::<Vec<_>>());
 
     match lines {
@@ -317,14 +317,16 @@ fn run_cmd(cmd: &str, args: &[&str], timeout_ms: u64) -> Option<String> {
         .stderr(Stdio::null())
         .spawn().ok()?;
 
+    let mut stdout = child.stdout.take()?;
     let timeout = Duration::from_millis(timeout_ms);
     let start = SystemTime::now();
 
     loop {
         match child.try_wait() {
             Ok(Some(_)) => {
-                let output = child.wait_with_output().ok()?;
-                return Some(String::from_utf8_lossy(&output.stdout).to_string());
+                let mut buf = Vec::new();
+                stdout.read_to_end(&mut buf).ok()?;
+                return Some(String::from_utf8_lossy(&buf).to_string());
             }
             Ok(None) => {
                 if start.elapsed().unwrap() > timeout {
@@ -344,7 +346,7 @@ impl Monitor for WSMonitor {
         (Self,vec![pollfd { fd: -1, events: 0, revents: 0 }])
     }
     fn get_data(&mut self) -> String {
-        format!("{} {}", Icons::WS,0)
+        format!("{} workspace:{}", Icons::WS,0)
     }
 }
 
